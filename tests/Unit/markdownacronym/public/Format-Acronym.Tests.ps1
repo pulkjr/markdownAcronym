@@ -1,3 +1,15 @@
+BeforeDiscovery {
+    $markdownTestData = [System.Collections.ArrayList]::new()
+    Get-TestData -Filter { $_.Name -like '*.input.md' }
+    | ForEach-Object {
+        $testData = @{
+            InputFile    = $_.FullName
+            ExpectedFile = ($_.FullName -replace '\.input\.md$', '.expected.md')
+        }
+        [void]$markdownTestData.Add($testData)
+    }
+}
+
 BeforeAll {
     $sourceFile = Get-SourceFilePath
     if (Test-Path $sourceFile) {
@@ -19,8 +31,8 @@ Describe 'Testing the public function Format-Acronym' -Tag @('unit', 'Format-Acr
         }
     }
 
-    Context 'GIVEN a process written in markdown with Acronyms and Keywords AND a acronym input file JSON or YAML' {
-        Context 'WHEN the build runs' {
+    Context "GIVEN a process written in markdown with Acronyms and Keywords `nAND a acronym input file JSON or YAML" {
+        Context 'WHEN the input is <Input>' -ForEach $markdownTestData {
             BeforeAll {
                 $acronymConfig = Join-Path $dataDirectory 'config.yml'
                 if (Test-Path $acronymConfig) {
@@ -30,17 +42,12 @@ Describe 'Testing the public function Format-Acronym' -Tag @('unit', 'Format-Acr
                         throw "There was an error parsing the acronym config.`n$_"
                     }
                 }
+                $Expected = (Get-Content $ExpectedFile -Raw)
+                $output = ((Get-Content $InputFile -Raw) | Format-Acronym -Acronyms $acronyms)
 
-                $inputFile = Join-Path $dataDirectory 'Instructions.md'
-                $expectedOutputFile = Join-Path $dataDirectory 'Expected.md'
-
-                $expected = Get-Content $expectedOutputFile -Raw
-
-                $output = Get-Content -Raw $inputFile | Format-Acronym -Acronyms $acronyms -Debug
-                $output | Out-File 'testoutput.md'
             }
-            It 'THEN the acronyms ad keywords should be updated with a React component' {
-                $output | Should -BeLikeExactly $expected -Because "Expected`n$([regex]::Escape($expected) -replace '\n', "\n`n")`nBut it was`n$([regex]::Escape($output) -replace '\n', "\n`n")"
+            It 'THEN the acronyms should be updated with a React Acronym tag' {
+                $output | Should -BeLikeExactly $Expected
             }
         }
     }
