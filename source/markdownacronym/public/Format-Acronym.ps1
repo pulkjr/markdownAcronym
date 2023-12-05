@@ -20,7 +20,7 @@ function Format-Acronym {
     begin {
         Write-Debug "`n$('-' * 80)`n-- Begin $($MyInvocation.MyCommand.Name)`n$('-' * 80)"
         if ($null -eq $Acronyms) {
-            throw "No Acronyms provided to replace in Content"
+            throw 'No Acronyms provided to replace in Content'
         }
         $collect = ''
     }
@@ -33,12 +33,12 @@ function Format-Acronym {
             try {
                 $doc = $collect | ConvertTo-MarkdigObject
             } catch {
-                $message = "There were errors parsing the markdown"
+                $message = 'There were errors parsing the markdown'
                 $exceptionText = ( @($message, $_.ToString()) -join "`n")
                 $thisException = [Exception]::new($exceptionText)
                 $eRecord =  [System.Management.Automation.ErrorRecord]::new(
                     $thisException,
-                    $null,                    # errorId
+                    $null, # errorId
                     $_.CategoryInfo.Category, # errorCategory
                     $null                     # targetObject
                 )
@@ -49,38 +49,57 @@ function Format-Acronym {
         foreach ($token in (Get-MarkdownElement $doc)) {
             switch ($token.GetType().FullName) {
                 'Markdig.Syntax.ParagraphBlock' {
-                    Write-Debug "Line $($token.Line) Column $($token.Column) is a paragraph block"
-                    $paraText = $token | Write-MarkdownElement
-                    $newText = $paraText
-                    foreach ($acronym in $Acronyms.Keys) {
-                        if ($newText -match "\b$([regex]::Escape($acronym))\b") {
-                            Write-Debug "Replacing $acronym"
-                            $newText = $newText -replace "\b$([regex]::Escape($acronym))\b", "<Acr>$acronym</Acr>"
-                            Write-Debug " - text is now '$newText'"
-                        } else {
-                            Write-Debug "$acronym not found in string"
-                        }
-                    }
-                    #! if we made any changes
-                    if ($paraText -notlike $newText) {
-                        Write-Debug "Updating paragraph in document"
-                        # Create a new element with the new text
-                        $newElement = $newText | ConvertTo-MarkdigObject
-                        if ($null -ne $newElement) {
-                            Write-Debug "New element created"
-                            try {
-                                if ($null -ne $newElement[0].Inline) {
-                                    [void]$token.Inline.FirstChild.ReplaceBy($newElement[0].Inline, $true)
-                                }
-                            } catch {
-                                throw "Could not update token at Line $($token.Line) $($token.Column)`n$_"
+                    Write-Debug "Line $($token.Line) Column $($token.Column) is a paragraph block of a $($token.Parent.GetType().FullName)"
+
+                    $token.Inline.ForEach({
+                            if ($_.GetType().FullName -like 'Markdig.Syntax.Inlines.LineBreakInline') {
+                                continue
                             }
-                        }
-                    }
+                            $inlineText = ($_ | Write-MarkdownElement)
+                            Write-Debug "Evaluating $($_.GetType().FullName) '$inlineText'"
+                            $newText = $inlineText
+                            foreach ($acronym in $Acronyms.Keys) {
+                                if ($newText -match "\b$([regex]::Escape($acronym))\b") {
+                                    Write-Debug "- Replacing $acronym"
+                                    $newText = $newText -replace "\b$([regex]::Escape($acronym))\b", "<Acr>$acronym</Acr>"
+                                } else {
+                                    Write-Debug "$acronym not found in string"
+                                }
+                            }
+                            Write-Debug "  - text is now '$newText'"
+                            #! if we made any changes
+                            if ($inlineText -notlike $newText) {
+                                Write-Debug '- Updating paragraph in document'
+                                # Create a new element with the new text
+                                $newInline = ConvertTo-MarkdigObject -Text $newText
+                                if ($null -ne $newInline) {
+                                    Write-Debug "  - New $($newInline[0].GetType().FullName) element created"
+                                    try {
+                                        if ($null -ne $newInline[0].Inline) {
+                                            Write-Debug "    - Inline token before: $($_ | Write-MarkdownElement))"
+                                            [void]$_.ReplaceBy($newInline[0].Inline, $true)
+                                            Write-Debug "    - Inline token after : $($_ | Write-MarkdownElement))"
+                                        } else {
+                                            Write-Debug '    - new text does not have an Inline'
+                                        }
+                                    } catch {
+                                        throw "Could not update token at Line $($token.Line) $($token.Column)`n$_"
+                                    }
+                                    Remove-Variable newInline, newInlineText, newText -ErrorAction SilentlyContinue
+                                } else {
+                                    Write-Debug '  - Did not create new element'
+                                }
+                            } else {
+                                Write-Debug '- No changes to inline element'
+                            }
+                        })
+                }
+                default {
+                    Write-Debug "Token is a '$($token.GetType.FullName)' skipping"
                 }
             }
         }
-        $doc | Write-MarkdownElement
+        $doc | Write-MarkdownElement | Write-Output
         Write-Debug "`n$('-' * 80)`n-- End $($MyInvocation.MyCommand.Name)`n$('-' * 80)"
     }
 }
